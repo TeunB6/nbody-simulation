@@ -170,7 +170,8 @@ bool Renderer::shouldClose() const {
     return glfwWindowShouldClose(m_window);
 }
 
-void Renderer::draw(const float* xyz, const float* vel, const glm::vec3 center, std::size_t count) {
+void Renderer::draw(const float* xyz, const float* vel, const glm::vec3 center, std::size_t count,
+                    DrawMode mode) {
     m_cam.setTarget(static_cast<glm::vec3>(center));
 
     // perspective and camera
@@ -195,7 +196,7 @@ void Renderer::draw(const float* xyz, const float* vel, const glm::vec3 center, 
     glBufferData(GL_ARRAY_BUFFER, count * 3 * sizeof(float), vel, GL_DYNAMIC_DRAW);
 
     // draw
-    glDrawArrays(GL_POINTS, 0, static_cast<GLsizei>(count));
+    glDrawArrays(mode == DrawMode::Triangles ? GL_TRIANGLES : GL_POINTS, 0, static_cast<GLsizei>(count));
 }
 
 Renderer::~Renderer() {

@@ -6,6 +6,8 @@
 
 struct GLFWwindow;
 
+enum class DrawMode { Points, Triangles };
+
 struct InputState {
     bool isLeftMouseDown = false;
     double lastX = 0.0, lastY = 0.0;
@@ -22,7 +24,8 @@ public:
     void beginFrame();
     void endFrame();
 
-    void draw(const float* xyz, const float* vel, glm::vec3 center, std::size_t count);
+    void draw(const float* xyz, const float* vel, glm::vec3 center, std::size_t count,
+              DrawMode mode = DrawMode::Points);
     void setCamera(float cx, float cy, float cz, float scale);
 
 private:
