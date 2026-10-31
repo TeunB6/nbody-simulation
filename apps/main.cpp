@@ -1,4 +1,7 @@
 #include <iostream>
+#include <iterator>
+#include <vector>
+#include <glm/glm.hpp>
 #include <nbody/renderer.hpp>
 #include <nbody/simulator.hpp>
 
@@ -11,7 +14,7 @@ int main(int argc, char** argv) {
         std::string arg = argv[i];
         if (arg == "-N" && i + 1 < argc) {
             n = std::stoi(argv[++i]); // read next token
-        } else if (arg == "-triangle") {
+        } else if (arg == "-test") {
             triangleTest = true;
         } else if (arg == "-soft" && i + 1 < argc)
             soft = std::stof(argv[++i]);        
@@ -24,16 +27,22 @@ int main(int argc, char** argv) {
     Renderer r(1000, 1000, "nbody");
 
     if (triangleTest) {
-        // Same draw path as the simulation: xyzm positions, xyz velocities (give each vertex a colour).
-        const float pos[] = {-1.f, -1.f, 0.f, 1.f,
-                              1.f, -1.f, 0.f, 1.f,
-                              0.f,  1.f, 0.f, 1.f};
-        const float vel[] = {1.f, 0.f, 0.f,
-                             0.f, 1.f, 0.f,
-                             0.f, 0.f, 1.f};
+        // Square pyramid through the same draw path as the simulation: xyzm positions, xyz velocities.
+        // The velocity is only used for colouring, so reuse each corner's position to give distinct colours.
+        const glm::vec3 apex(0.f, 1.f, 0.f);
+        const glm::vec3 b0(-1.f, -1.f, -1.f), b1(1.f, -1.f, -1.f), b2(1.f, -1.f, 1.f), b3(-1.f, -1.f, 1.f);
+        const glm::vec3 corners[] = {
+            b0, b1, apex,  b1, b2, apex,  b2, b3, apex,  b3, b0, apex, // sides
+            b0, b2, b1,    b0, b3, b2,                                 // base
+        };
+        std::vector<float> pos, vel;
+        for (const glm::vec3& c : corners) {
+            pos.insert(pos.end(), {c.x, c.y, c.z, 1.f});
+            vel.insert(vel.end(), {c.x, c.y, c.z});
+        }
         while (!r.shouldClose()) {
             r.beginFrame();
-            r.draw(pos, vel, glm::vec3(0.f), 3, DrawMode::Triangles);
+            r.draw(pos.data(), vel.data(), glm::vec3(0.f), std::size(corners), DrawMode::Triangles);
             r.endFrame();
         }
         return 0;

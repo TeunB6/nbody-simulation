@@ -69,7 +69,7 @@ static void cursor_position_callback(GLFWwindow* window, double xPos, double yPo
     if (!cam) return;
 
     float deltaX = (xPos - inputState.lastX);
-    float deltaY = (xPos - inputState.lastX);
+    float deltaY = (yPos - inputState.lastY);
 
     if (inputState.isLeftMouseDown) cam->rotate(deltaX, deltaY);
     inputState.lastX = xPos;
@@ -136,6 +136,7 @@ Renderer::Renderer(int width, int height, const char *title): m_cam(glm::vec3(0.
 
     
     glEnable(GL_PROGRAM_POINT_SIZE);
+    glEnable(GL_DEPTH_TEST); // needed for the solid test mesh
 
 
 
@@ -159,7 +160,7 @@ Renderer::Renderer(int width, int height, const char *title): m_cam(glm::vec3(0.
 void Renderer::beginFrame() {
     glfwPollEvents();
     glViewport(0, 0, m_width, m_height);
-    glClear(GL_COLOR_BUFFER_BIT);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 }
 
 void Renderer::endFrame() {

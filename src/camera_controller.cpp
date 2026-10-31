@@ -4,7 +4,7 @@
 
 CameraController::CameraController(glm::vec3 target, float radius)
     : m_target(target), m_radius(radius), m_yaw(0.0f), m_pitch(0.0f),
-      m_sensitivity(0.0005f), m_zoomSpeed(0.5f) {
+      m_sensitivity(1.0f), m_zoomSpeed(0.5f) {
 }
 
 CameraController::~CameraController() = default;
@@ -41,9 +41,9 @@ glm::vec3 CameraController::position() {
 
 
     glm::vec3 offset;
-    offset.x = m_radius * sin(pitchRad) * cos(yawRad);
-    offset.y = m_radius * sin(pitchRad) * sin(yawRad);
-    offset.z = m_radius * cos(yawRad);
+    offset.x = m_radius * cos(pitchRad) * sin(yawRad);
+    offset.y = m_radius * sin(pitchRad);
+    offset.z = m_radius * cos(pitchRad) * cos(yawRad);
 
     return offset + m_target;
 }
