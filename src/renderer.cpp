@@ -2,22 +2,35 @@
 #include <GLFW/glfw3.h>
 #include <iostream>
 #include <functional>
+#include <fstream>
+#include <sstream>
+#include <string>
 #include <nbody/renderer.hpp>
 
-const char *vertexShaderSource = "#version 330 core\n"
-    "layout (location = 0) in vec3 aPos;\n"
-    "void main()\n"
-    "{\n"
-    "   gl_Position = vec4(aPos.x, aPos.y, aPos.z, 1.0);\n"
-    "}\0";
+#ifndef SHADER_DIR
+#define SHADER_DIR "shaders"
+#endif
 
-const char *fragmentShaderSource = "#version 330 core\n"
-"out vec4 FragColor;\n"
-"void main()\n"
-"{\n"
-"    FragColor = vec4(1.0f, 0.5f, 0.2f, 1.0f);\n"
-"}\0";
 
+static unsigned int compileShader(GLenum type, const std::string& path) {
+    std::ifstream f(path);
+    if (!f) { std::cerr << "Cannot open shader " << path << "\n"; exit(EXIT_FAILURE); }
+    std::stringstream ss; ss << f.rdbuf();
+    std::string src = ss.str();
+    const char* c = src.c_str();
+
+    unsigned int s = glCreateShader(type);
+    glShaderSource(s, 1, &c, NULL);
+    glCompileShader(s);
+
+    int ok; glGetShaderiv(s, GL_COMPILE_STATUS, &ok);
+    if (!ok) {
+        char log[1024]; glGetShaderInfoLog(s, sizeof log, NULL, log);
+        std::cerr << path << ":\n" << log << "\n";
+        exit(EXIT_FAILURE);
+    }
+    return s;
+}
 
 
 static void error_callback(int error, const char* description) {
@@ -56,30 +69,31 @@ Renderer::Renderer(int width, int height, const char *title) {
 
 
     // Buffers
-    glCreateBuffers(1, &vbo);
     glGenBuffers(1, &vbo);
-    glBindBuffer(GL_ARRAY_BUFFER, vbo); 
+    glBindBuffer(GL_ARRAY_BUFFER, vbo);
 
     // Vertex Array
-    glCreateVertexArrays(1, &vao);
     glGenVertexArrays(1, &vao);
     glBindVertexArray(vao);
 
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+    glEnable(GL_PROGRAM_POINT_SIZE);
+
+
 
     // Shaders
-    vertexShader = glCreateShader(GL_VERTEX_SHADER);
-    glShaderSource(vertexShader, 1, &vertexShaderSource, NULL);
-    glCompileShader(vertexShader);
-
-    fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
-    glShaderSource(fragmentShader, 1, &fragmentShaderSource, NULL);
-    glCompileShader(fragmentShader);
+    unsigned int vertexShader = compileShader(GL_VERTEX_SHADER, std::string(SHADER_DIR) + "/vertex.glsl");
+    unsigned int fragmentShader = compileShader(GL_FRAGMENT_SHADER, std::string(SHADER_DIR) + "/fragment.glsl");
 
     shaderProgram = glCreateProgram();
 
     glAttachShader(shaderProgram, vertexShader);
     glAttachShader(shaderProgram, fragmentShader);
     glLinkProgram(shaderProgram);
+    glDeleteShader(vertexShader);
+    glDeleteShader(fragmentShader);  
+
 
     glUseProgram(shaderProgram);
 }
@@ -98,13 +112,18 @@ bool Renderer::shouldClose() const {
     return glfwWindowShouldClose(m_window);
 }
 
+void Renderer::draw(const float* xyz, std::size_t count) {
+    glBindVertexArray(vao);
+    glBindBuffer(GL_ARRAY_BUFFER, vbo);
+    glBufferData(GL_ARRAY_BUFFER, count * DIM * sizeof(float), xyz, GL_DYNAMIC_DRAW);
+    glDrawArrays(GL_POINTS, 0, static_cast<GLsizei>(count));
+}
 
 Renderer::~Renderer() {
     glDeleteBuffers(1, &vbo);
     glDeleteVertexArrays(1, &vao);
 
-    glDeleteShader(vertexShader);
-    glDeleteShader(fragmentShader);  
+    glDeleteProgram(shaderProgram);
 
     glfwDestroyWindow(m_window);
     glfwTerminate();

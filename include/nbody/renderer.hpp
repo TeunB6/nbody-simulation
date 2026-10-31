@@ -1,6 +1,8 @@
 #pragma once
 #include <functional>
 
+#define DIM 3
+
 struct GLFWwindow;
 
 class Renderer{
@@ -14,7 +16,7 @@ public:
     void beginFrame();
     void endFrame();
 
-    void draw();
+    void draw(const float* xyz, std::size_t count);
 
 private:
     GLFWwindow* m_window = nullptr;
@@ -24,8 +26,6 @@ private:
     // OpenGL
     unsigned int vbo;
     unsigned int vao;
-    unsigned int vertexShader;
-    unsigned int fragmentShader;
     unsigned int shaderProgram;
 
 };
