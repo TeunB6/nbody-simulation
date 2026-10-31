@@ -4,11 +4,16 @@
 #include <glm/glm.hpp>
 #include <nbody/renderer.hpp>
 #include <nbody/simulator.hpp>
+#include <nbody/initial_conditions.hpp>
+#include <nbody/bodies.hpp>
 
 int main(int argc, char** argv) {
     int n = 1000;
     float soft = 0.5;
     bool triangleTest = false;
+    std::uint32_t seed = 33;
+    InitMethod init = InitMethod::Uniform;
+
 
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
@@ -16,9 +21,16 @@ int main(int argc, char** argv) {
             n = std::stoi(argv[++i]); // read next token
         } else if (arg == "-test") {
             triangleTest = true;
-        } else if (arg == "-soft" && i + 1 < argc)
-            soft = std::stof(argv[++i]);        
-        else {
+        } else if (arg == "-soft" && i + 1 < argc) {
+            soft = std::stof(argv[++i]);  
+        } else if (arg == "-init" && i + 1 < argc) {
+            auto m = parseInitMethod(argv[++i]);
+            if (!m) {
+                std::cerr << "unknown -init '" << argv[i] << "'\n";
+                return 1;
+            }          
+            init = *m;  
+        } else {
             std::cerr << "usage: " << argv[0] << " [-N bodies] [-soft eps] [-triangle]\n";
             return 1;
         }
@@ -48,7 +60,9 @@ int main(int argc, char** argv) {
         return 0;
     }
 
-    Simulator sim(n, 1.0, soft);
+    Bodies b = makeBodies(init, n, seed);
+
+    Simulator sim(b, soft);
     const float h = 1.f / 120.f;
     float acc = 0.f;
 

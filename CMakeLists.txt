@@ -14,7 +14,8 @@ set_target_properties(main PROPERTIES CUDA_ARCHITECTURES "70;80;89")
 
 
 find_package(glfw3 REQUIRED)
-target_sources(main PRIVATE src/renderer.cpp src/simulator.cpp src/cuda/nbody_kernel.cu src/camera_controller.cpp)
+target_sources(main PRIVATE src/renderer.cpp src/simulator.cpp src/cuda/nbody_kernel.cu
+               src/camera_controller.cpp src/initial_conditions.cpp)
 target_link_libraries(main PRIVATE glfw)
 target_include_directories(main PRIVATE include)
 

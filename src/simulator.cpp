@@ -37,42 +37,26 @@ glm::vec3 massWeightedDir(const std::vector<glm::vec3> &dir, const std::vector<g
     return c;
 }
 
-Simulator::Simulator(int n, float particle_mass, float softening):
-     m_n(n), m_pos(n), m_vel(n), m_softening(softening) 
+Simulator::Simulator(const Bodies& initial, float softening):
+    m_softening(softening) 
 {
-    std::mt19937 rng(42);
-    std::uniform_real_distribution<float> d(-1.f, 1.f);
+    m_pos = initial.pos;
+    m_vel = initial.vel;
 
-    for (std::size_t i = 0; i < n; ++i) {
-        m_pos[i].x = d(rng);
-        m_pos[i].y = d(rng);
-        m_pos[i].z = d(rng);  // 2d for now
-        m_pos[i].w = particle_mass;
-
-        m_vel[i].x = d(rng);
-        m_vel[i].y = d(rng);
-        m_vel[i].z = d(rng); // 2d for now
-    }
-
-    // Make sure net momentum is 0 at the start
-    glm::vec3 net_momentum = massWeightedDir(m_vel, m_pos);
-    for (std::size_t i = 0; i < n; ++i) {
-        m_vel[i].x -= net_momentum.x;
-        m_vel[i].y -= net_momentum.y;
-        m_vel[i].z -= net_momentum.z;
-    }
-
+    if (m_pos.size() != m_vel.size()) 
+        throw std::invalid_argument("Initial configuration contains an inconsistant amount of bodies.");
+    m_n = m_pos.size();
     // TODO: finda way to use RAII on these buffers as they are not freed if the constructor fails mid construction.
     // read arrays 
-    CUDA_CHECK(cudaMalloc(&d_posRead, sizeof(glm::vec4) * n));
-    CUDA_CHECK(cudaMalloc(&d_velRead, sizeof(glm::vec3) * n));
+    CUDA_CHECK(cudaMalloc(&d_posRead, sizeof(glm::vec4) * m_n));
+    CUDA_CHECK(cudaMalloc(&d_velRead, sizeof(glm::vec3) * m_n));
 
     // write arrays
-    CUDA_CHECK(cudaMalloc(&d_posWrite, sizeof(glm::vec4) * n));
-    CUDA_CHECK(cudaMalloc(&d_velWrite, sizeof(glm::vec3) * n));
+    CUDA_CHECK(cudaMalloc(&d_posWrite, sizeof(glm::vec4) * m_n));
+    CUDA_CHECK(cudaMalloc(&d_velWrite, sizeof(glm::vec3) * m_n));
 
-    CUDA_CHECK(cudaMemcpy(d_posRead, m_pos.data(), n * sizeof(glm::vec4), cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(d_velRead, m_vel.data(), n * sizeof(glm::vec3), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_posRead, m_pos.data(), m_n * sizeof(glm::vec4), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_velRead, m_vel.data(), m_n * sizeof(glm::vec3), cudaMemcpyHostToDevice));
 }
 
 const float* Simulator::positions() {

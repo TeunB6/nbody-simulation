@@ -1,5 +1,6 @@
 #pragma once
 #include <vector>
+#include <nbody/bodies.hpp>
 #include <cstddef>
 #include <glm/glm.hpp>
 #include <vector_types.h>
@@ -9,7 +10,7 @@
 
 class Simulator {
 public:
-    Simulator(int n, float particle_mass, float softening);
+    Simulator(const Bodies& initial, float softening);
     ~Simulator();
 
     void step(float dt);
