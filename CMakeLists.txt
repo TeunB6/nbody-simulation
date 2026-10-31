@@ -14,7 +14,21 @@ set_target_properties(main PROPERTIES CUDA_ARCHITECTURES "70;80;89")
 
 
 find_package(glfw3 REQUIRED)
-target_sources(main PRIVATE src/renderer.cpp src/simulator.cpp src/cuda/nbody_kernel.cu)
+target_sources(main PRIVATE src/renderer.cpp src/simulator.cpp src/cuda/nbody_kernel.cu src/camera_controller.cpp)
 target_link_libraries(main PRIVATE glfw)
-target_sources(main PRIVATE third_party/glad/src/gl.c)
-target_include_directories(main PRIVATE include third_party/glad/include)
+target_include_directories(main PRIVATE include)
+
+# Dependencies not provided by the cluster modules are fetched at configure time.
+# glad is generated here (needs python3 + jinja2); glm is header-only.
+include(FetchContent)
+FetchContent_Declare(glad
+    GIT_REPOSITORY https://github.com/Dav1dde/glad.git
+    GIT_TAG v2.0.8
+    SOURCE_SUBDIR cmake)
+FetchContent_Declare(glm
+    GIT_REPOSITORY https://github.com/g-truc/glm.git
+    GIT_TAG 1.0.1
+    FIND_PACKAGE_ARGS NAMES glm)
+FetchContent_MakeAvailable(glad glm)
+glad_add_library(glad_gl_core_33 STATIC REPRODUCIBLE API gl:core=3.3)
+target_link_libraries(main PRIVATE glad_gl_core_33 glm::glm)

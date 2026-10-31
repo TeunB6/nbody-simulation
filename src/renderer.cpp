@@ -1,5 +1,10 @@
 #include <glad/gl.h>
 #include <GLFW/glfw3.h>
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/type_ptr.hpp>
+
+
 #include <iostream>
 #include <functional>
 #include <fstream>
@@ -10,6 +15,8 @@
 #ifndef SHADER_DIR
 #define SHADER_DIR "shaders"
 #endif
+
+InputState inputState = {false, 0.0, 0.0};
 
 
 static unsigned int compileShader(GLenum type, const std::string& path) {
@@ -37,12 +44,47 @@ static void error_callback(int error, const char* description) {
     std::cerr << "Error: " << error << description;
 }
 
+void mouse_button_callback(GLFWwindow* window, int button, int action, int mods) {
+    if (button == GLFW_MOUSE_BUTTON_LEFT) {
+        inputState.isLeftMouseDown = (action == GLFW_PRESS);
+        if (inputState.isLeftMouseDown) glfwGetCursorPos(window, &inputState.lastX, &inputState.lastY);
+    }
+}
+
+void window_focus_callback(GLFWwindow* window, int focused) {
+    if (!focused) {
+        // Force reset states if the user Alt-Tabs or drags the mouse off-screen
+        inputState.isLeftMouseDown = false;
+    }
+}
+
 static void key_callback(GLFWwindow* window, int key, int scanncode, int action, int mods) {
     if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS)
         glfwSetWindowShouldClose(window, GLFW_TRUE);   
 }
 
-Renderer::Renderer(int width, int height, const char *title) {
+
+static void cursor_position_callback(GLFWwindow* window, double xPos, double yPos) {
+    CameraController* cam = static_cast<CameraController*>(glfwGetWindowUserPointer(window));
+    if (!cam) return;
+
+    float deltaX = (xPos - inputState.lastX);
+    float deltaY = (xPos - inputState.lastX);
+
+    if (inputState.isLeftMouseDown) cam->rotate(deltaX, deltaY);
+    inputState.lastX = xPos;
+    inputState.lastY = yPos;
+}
+
+static void scroll_callback(GLFWwindow* window, double xOffset, double yOffset) {
+    CameraController* cam = static_cast<CameraController*>(glfwGetWindowUserPointer(window));
+    if(!cam) return;
+
+    cam->zoom(yOffset);
+}
+
+
+Renderer::Renderer(int width, int height, const char *title): m_cam(glm::vec3(0.0,0.0,0.0), 5.0) {
     // Window setup
     m_height = height; m_width = width;
     glfwSetErrorCallback(error_callback);
@@ -61,7 +103,13 @@ Renderer::Renderer(int width, int height, const char *title) {
         exit(EXIT_FAILURE);
     }
 
+    glfwSetWindowUserPointer(m_window, &m_cam);
+
     glfwSetKeyCallback(m_window, key_callback);
+    glfwSetCursorPosCallback(m_window, cursor_position_callback);
+    glfwSetScrollCallback(m_window, scroll_callback);
+    glfwSetMouseButtonCallback(m_window, mouse_button_callback);
+    glfwSetWindowFocusCallback(m_window, window_focus_callback);
 
     glfwMakeContextCurrent(m_window);
     gladLoadGL(glfwGetProcAddress);
@@ -69,20 +117,20 @@ Renderer::Renderer(int width, int height, const char *title) {
 
 
     // Buffers
-    glGenBuffers(1, &posvbo);
-    glGenBuffers(1, &velvbo);
+    glGenBuffers(1, &vboPos);
+    glGenBuffers(1, &vboVel);
 
     // Vertex Array
     glGenVertexArrays(1, &vao);
     glBindVertexArray(vao);
 
     // pos has mass in 4th slot we don't need
-    glBindBuffer(GL_ARRAY_BUFFER, posvbo);
+    glBindBuffer(GL_ARRAY_BUFFER, vboPos);
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, (DIM + 1) * sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
 
     // vel for colouring, tightly packed float3
-    glBindBuffer(GL_ARRAY_BUFFER, velvbo);
+    glBindBuffer(GL_ARRAY_BUFFER, vboVel);
     glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(1);
 
@@ -105,6 +153,7 @@ Renderer::Renderer(int width, int height, const char *title) {
 
 
     glUseProgram(shaderProgram);
+
 }
 
 void Renderer::beginFrame() {
@@ -121,20 +170,37 @@ bool Renderer::shouldClose() const {
     return glfwWindowShouldClose(m_window);
 }
 
-void Renderer::draw(const float* xyz, const float* vel, std::size_t count) {
+void Renderer::draw(const float* xyz, const float* vel, const glm::vec3 center, std::size_t count) {
+    m_cam.setTarget(static_cast<glm::vec3>(center));
+
+    // perspective and camera
+    glfwGetFramebufferSize(m_window, &m_width, &m_height);
+    glm::mat4 projection = m_cam.getProjectionmatrix(m_width, m_height);
+    glm::mat4 view = m_cam.getViewMatrix();
+
+    // send uniforms to shader
+    GLint viewLoc = glGetUniformLocation(shaderProgram, "view");
+    GLint projLoc = glGetUniformLocation(shaderProgram, "projection");
+
+    glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
+    glUniformMatrix4fv(projLoc, 1, GL_FALSE, glm::value_ptr(projection));
+    
+
+    // send data to shader
     glBindVertexArray(vao);
-    glBindBuffer(GL_ARRAY_BUFFER, posvbo);
+    glBindBuffer(GL_ARRAY_BUFFER, vboPos);
     glBufferData(GL_ARRAY_BUFFER, count * (DIM + 1) * sizeof(float), xyz, GL_DYNAMIC_DRAW);
     
-    glBindBuffer(GL_ARRAY_BUFFER, velvbo);
+    glBindBuffer(GL_ARRAY_BUFFER, vboVel);
     glBufferData(GL_ARRAY_BUFFER, count * 3 * sizeof(float), vel, GL_DYNAMIC_DRAW);
 
+    // draw
     glDrawArrays(GL_POINTS, 0, static_cast<GLsizei>(count));
 }
 
 Renderer::~Renderer() {
-    glDeleteBuffers(1, &posvbo);
-    glDeleteBuffers(1, &velvbo);
+    glDeleteBuffers(1, &vboPos);
+    glDeleteBuffers(1, &vboVel);
     glDeleteVertexArrays(1, &vao);
 
     glDeleteProgram(shaderProgram);

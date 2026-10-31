@@ -1,6 +1,7 @@
 #pragma once
 #include <vector>
 #include <cstddef>
+#include <glm/glm.hpp>
 #include <vector_types.h>
 
 
@@ -15,16 +16,16 @@ public:
     const float* positions();
     const float* velocities();
     const std::size_t count();
-    const float3 centerOfMass();
+    const glm::vec3 centerOfMass();
 
 private:
-    std::vector<float4> m_pos;
-    std::vector<float3> m_vel;
+    std::vector<glm::vec4> m_pos;
+    std::vector<glm::vec3> m_vel;
 
-    float4 *d_pos_read = nullptr;
-    float3 *d_vel_read = nullptr;
-    float4 *d_pos_write = nullptr;
-    float3 *d_vel_write = nullptr;
+    float4 *d_posRead = nullptr;
+    float3 *d_velRead = nullptr;
+    float4 *d_posWrite = nullptr;
+    float3 *d_velWrite = nullptr;
     std::size_t m_n;
     float m_softening = 0;
 };

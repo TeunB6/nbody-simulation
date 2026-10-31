@@ -28,7 +28,7 @@ int main(int argc, char** argv) {
         acc += std::min(dt, 0.25f);          // clamp so a stall doesn't cause a spiral
         while (acc >= h) { sim.step(h); acc -= h; }
         r.beginFrame();
-        r.draw(sim.positions(), sim.velocities(), sim.count());
+        r.draw(sim.positions(), sim.velocities(), sim.centerOfMass(), sim.count());
         r.endFrame();
     }
 

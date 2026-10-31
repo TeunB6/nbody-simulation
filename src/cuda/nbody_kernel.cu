@@ -9,35 +9,35 @@
 
 
 __global__ void nbody_compute_kernel(
-    float4* positions_read, float3* velocities_read,
-    float4* positions_write, float3* velocities_write,
+    float4* positionsRead, float3* velocitiesRead,
+    float4* positionsWrite, float3* velocitiesWrite,
     float dt, int n, float softening)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx > n) return;
 
-    float4 my_pos = positions_read[idx];
-    float3 my_vel = velocities_read[idx];
+    float4 myPos = positionsRead[idx];
+    float3 myVel = velocitiesRead[idx];
 
     float3 accel = {0.0, 0.0, 0.0};
 
     // compute for each other particle (later switch to Barnes-Hut for nlogn)
     for (size_t j = 0; j < n; j++)
     {
-        float4 other_pos = positions_read[j];
+        float4 otherPos = positionsRead[j];
         
         // relative pos vector
         float3 r;
-        r.x = other_pos.x - my_pos.x;
-        r.y = other_pos.y - my_pos.y;
-        r.z = other_pos.z - my_pos.z;
+        r.x = otherPos.x - myPos.x;
+        r.y = otherPos.y - myPos.y;
+        r.z = otherPos.z - myPos.z;
 
         // force calc
-        float sq_dist = r.x * r.x + r.y * r.y + r.z * r.z + softening;
-        float inv_dist = rsqrtf(sq_dist);
-        float inv_dist_cube = inv_dist * inv_dist * inv_dist;
+        float sqDist = r.x * r.x + r.y * r.y + r.z * r.z + softening;
+        float invDist = rsqrtf(sqDist);
+        float invDistCube = invDist * invDist * invDist;
 
-        float force = other_pos.w * inv_dist_cube;
+        float force = otherPos.w * invDistCube;
 
         accel.x += force * r.x;
         accel.y += force * r.y;
@@ -45,31 +45,31 @@ __global__ void nbody_compute_kernel(
     }
 
     // update
-    my_vel.x += dt * accel.x;
-    my_vel.y += dt * accel.y;
-    my_vel.z += dt * accel.z;
+    myVel.x += dt * accel.x;
+    myVel.y += dt * accel.y;
+    myVel.z += dt * accel.z;
 
-    my_pos.x += dt * my_vel.x;
-    my_pos.y += dt * my_vel.y;
-    my_pos.z += dt * my_vel.z;
+    myPos.x += dt * myVel.x;
+    myPos.y += dt * myVel.y;
+    myPos.z += dt * myVel.z;
 
-    velocities_write[idx] = my_vel;
-    positions_write[idx] = my_pos;  
+    velocitiesWrite[idx] = myVel;
+    positionsWrite[idx] = myPos;  
 }
 
 cudaError_t run_nbody_step(
-    float4* positions_read, float3* velocities_read, 
-    float4* positions_write, float3* velocities_write,
+    float4* positionsRead, float3* velocitiesRead, 
+    float4* positionsWrite, float3* velocitiesWrite,
     float dt, int num_bodies, float softening)
 {
     // assume arrays alr allocated somehow
-    int thread_per_block = 256;
-    int blocks = (num_bodies + thread_per_block - 1) / thread_per_block;
+    int threadsPerBlock = 256;
+    int blocks = (num_bodies + threadsPerBlock - 1) / threadsPerBlock;
 
     dim3 Dg(blocks,1,1);
-    dim3 Db(thread_per_block,1,1);  
-    nbody_compute_kernel<<<Dg,Db>>>(positions_read, velocities_read,
-         positions_write, velocities_write, dt, num_bodies, softening);
+    dim3 Db(threadsPerBlock,1,1);  
+    nbody_compute_kernel<<<Dg,Db>>>(positionsRead, velocitiesRead,
+         positionsWrite, velocitiesWrite, dt, num_bodies, softening);
     cudaError_t err = cudaGetLastError();
     return err;
 }
