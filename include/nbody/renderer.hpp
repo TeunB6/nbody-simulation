@@ -16,7 +16,8 @@ public:
     void beginFrame();
     void endFrame();
 
-    void draw(const float* xyz, std::size_t count);
+    void draw(const float* xyz, const float* vel, std::size_t count);
+    void setCamera(float cx, float cy, float cz, float scale);
 
 private:
     GLFWwindow* m_window = nullptr;
@@ -24,7 +25,8 @@ private:
     int m_height = 0;
 
     // OpenGL
-    unsigned int vbo;
+    unsigned int posvbo;
+    unsigned int velvbo;
     unsigned int vao;
     unsigned int shaderProgram;
 

@@ -69,15 +69,24 @@ Renderer::Renderer(int width, int height, const char *title) {
 
 
     // Buffers
-    glGenBuffers(1, &vbo);
-    glBindBuffer(GL_ARRAY_BUFFER, vbo);
+    glGenBuffers(1, &posvbo);
+    glGenBuffers(1, &velvbo);
 
     // Vertex Array
     glGenVertexArrays(1, &vao);
     glBindVertexArray(vao);
 
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+    // pos has mass in 4th slot we don't need
+    glBindBuffer(GL_ARRAY_BUFFER, posvbo);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, (DIM + 1) * sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
+
+    // vel for colouring, tightly packed float3
+    glBindBuffer(GL_ARRAY_BUFFER, velvbo);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(1);
+
+    
     glEnable(GL_PROGRAM_POINT_SIZE);
 
 
@@ -112,15 +121,20 @@ bool Renderer::shouldClose() const {
     return glfwWindowShouldClose(m_window);
 }
 
-void Renderer::draw(const float* xyz, std::size_t count) {
+void Renderer::draw(const float* xyz, const float* vel, std::size_t count) {
     glBindVertexArray(vao);
-    glBindBuffer(GL_ARRAY_BUFFER, vbo);
-    glBufferData(GL_ARRAY_BUFFER, count * DIM * sizeof(float), xyz, GL_DYNAMIC_DRAW);
+    glBindBuffer(GL_ARRAY_BUFFER, posvbo);
+    glBufferData(GL_ARRAY_BUFFER, count * (DIM + 1) * sizeof(float), xyz, GL_DYNAMIC_DRAW);
+    
+    glBindBuffer(GL_ARRAY_BUFFER, velvbo);
+    glBufferData(GL_ARRAY_BUFFER, count * 3 * sizeof(float), vel, GL_DYNAMIC_DRAW);
+
     glDrawArrays(GL_POINTS, 0, static_cast<GLsizei>(count));
 }
 
 Renderer::~Renderer() {
-    glDeleteBuffers(1, &vbo);
+    glDeleteBuffers(1, &posvbo);
+    glDeleteBuffers(1, &velvbo);
     glDeleteVertexArrays(1, &vao);
 
     glDeleteProgram(shaderProgram);
