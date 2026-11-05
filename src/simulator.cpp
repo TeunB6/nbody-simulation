@@ -51,6 +51,8 @@ Simulator::Simulator(const Bodies& initial, float softening):
     CUDA_CHECK(cudaMalloc(&d_posRead, sizeof(glm::vec4) * m_n));
     CUDA_CHECK(cudaMalloc(&d_velRead, sizeof(glm::vec3) * m_n));
 
+    CUDA_CHECK(cudaMalloc(&d_energy, sizeof(double) * 2));
+
     // write arrays
     CUDA_CHECK(cudaMalloc(&d_posWrite, sizeof(glm::vec4) * m_n));
     CUDA_CHECK(cudaMalloc(&d_velWrite, sizeof(glm::vec3) * m_n));
@@ -62,6 +64,13 @@ Simulator::Simulator(const Bodies& initial, float softening):
 const float* Simulator::positions() {
     CUDA_CHECK(cudaMemcpy(m_pos.data(), d_posRead, m_n * sizeof(glm::vec4), cudaMemcpyDeviceToHost));
     return reinterpret_cast<const float*>(m_pos.data());
+}
+
+const float Simulator::virialRatio() {
+    CUDA_CHECK(compute_energy(d_posRead, d_velRead, m_n, m_softening, d_energy));
+    double h[2];
+    CUDA_CHECK(cudaMemcpy(h, d_energy, 2*sizeof(double), cudaMemcpyDeviceToHost));
+    return 2 * h[0] / fabs(h[1]);
 }
 
 const float* Simulator::velocities() {
@@ -89,4 +98,5 @@ Simulator::~Simulator() {
     cudaFree(d_posWrite);
     cudaFree(d_velRead);
     cudaFree(d_velWrite);
+    cudaFree(d_energy);
 }

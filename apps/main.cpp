@@ -13,6 +13,7 @@ int main(int argc, char** argv) {
     bool triangleTest = false;
     std::uint32_t seed = 33;
     InitMethod init = InitMethod::Uniform;
+    InitParams params = InitParams{};
 
 
     for (int i = 1; i < argc; ++i) {
@@ -23,13 +24,20 @@ int main(int argc, char** argv) {
             triangleTest = true;
         } else if (arg == "-soft" && i + 1 < argc) {
             soft = std::stof(argv[++i]);  
+        } else if (arg == "-seed" && i + 1 < argc) {
+            seed = std::stoul(argv[++i]);        
         } else if (arg == "-init" && i + 1 < argc) {
-            auto m = parseInitMethod(argv[++i]);
+            arg = argv[++i];
+            auto colon = arg.find(':');
+            auto name = arg.substr(0, colon);
+            params = colon == arg.npos ? InitParams{} : InitParams::parse(arg.substr(colon + 1));
+            auto m = parseInitMethod(name);
             if (!m) {
                 std::cerr << "unknown -init '" << argv[i] << "'\n";
                 return 1;
             }          
-            init = *m;  
+            init = *m;
+
         } else {
             std::cerr << "usage: " << argv[0] << " [-N bodies] [-soft eps] [-triangle]\n";
             return 1;
@@ -60,19 +68,21 @@ int main(int argc, char** argv) {
         return 0;
     }
 
-    Bodies b = makeBodies(init, n, seed);
+    Bodies b = makeBodies(init, n, seed, params);
 
     Simulator sim(b, soft);
     const float h = 1.f / 120.f;
     float acc = 0.f;
 
     while(!r.shouldClose()) {
-        float dt = 1.f / 60.f;
+        float dt = 1.f / 120.f;
         acc += std::min(dt, 0.25f);          // clamp so a stall doesn't cause a spiral
         while (acc >= h) { sim.step(h); acc -= h; }
         r.beginFrame();
         r.draw(sim.positions(), sim.velocities(), sim.centerOfMass(), sim.count());
         r.endFrame();
+
+        std::cout <<  "Virial Ratio:\t" << sim.virialRatio() << '\n';
     }
 
     return 0;

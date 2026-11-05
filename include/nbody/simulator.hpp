@@ -18,6 +18,7 @@ public:
     const float* velocities();
     const std::size_t count();
     const glm::vec3 centerOfMass();
+    const float virialRatio();
 
 private:
     std::vector<glm::vec4> m_pos;
@@ -27,6 +28,9 @@ private:
     float3 *d_velRead = nullptr;
     float4 *d_posWrite = nullptr;
     float3 *d_velWrite = nullptr;
+
+    double *d_energy = nullptr;
+
     std::size_t m_n;
     float m_softening = 0;
 };
