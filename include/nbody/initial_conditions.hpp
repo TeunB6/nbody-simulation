@@ -18,6 +18,7 @@ class InitParams {
         static InitParams parse(std::string_view s);
         float get(const std::string& key, float def) const;
         void assertAllUsed() const;
+        void setDefault(const std::string& key, float val); 
 
     private:
         std::map<std::string, float> m_vals;

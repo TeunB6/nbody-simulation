@@ -38,6 +38,11 @@ InitParams InitParams::parse(std::string_view s) {
     return out;
 }
 
+void InitParams::setDefault(const std::string& key, float val) {
+    m_vals.emplace(key, val);
+    m_used.insert(key);
+}
+
 float InitParams::get(const std::string& key, float def) const {
     if (m_vals.find(key) != m_vals.end()) {
         m_used.insert(key);
@@ -133,9 +138,9 @@ Bodies makePlummer(size_t n, std::uint32_t seed, const InitParams& p) {
     std::uniform_real_distribution<float> uniform(0.0,1.0);
     float scaleRadius = p.get("scale_radius", 5.0);
     float mMax = p.get("m_max", 0.0);
+    float centralMass = p.get("central_mass", 0);
 
     Bodies bodies = {std::vector<glm::vec4>(n), std::vector<glm::vec3>(n)};
-
 
     for (size_t i = 0; i < n; ++i)
     {
@@ -186,6 +191,11 @@ Bodies makePlummer(size_t n, std::uint32_t seed, const InitParams& p) {
         bodies.vel[i] = vel;
     }
     
+    if (centralMass != 0) {
+        bodies.pos.push_back({0,0,0,centralMass});
+        bodies.vel.push_back({0,0,0});
+    }
+
     recenter(bodies);
     p.assertAllUsed();
     return bodies;
@@ -200,6 +210,7 @@ Bodies makeSolarSystem(size_t n, std::uint32_t seed, const InitParams& p) {
     float massPlanetMax = p.get("planet_max", 1);
     float maxRadius = p.get("max_radius", 1.0);
     float maxHeight = p.get("max_height", 0.05);
+    float soft = p.get("soft", 0.01);
 
     Bodies bodies = {std::vector<glm::vec4>(n), std::vector<glm::vec3>(n)};
 
@@ -230,7 +241,7 @@ Bodies makeSolarSystem(size_t n, std::uint32_t seed, const InitParams& p) {
     float starMassEff = starMass / totalMass;
     for (size_t i = 1; i < n; ++i)
     {
-        float speed = sqrt(starMassEff / radii[i]); // circular orbit speed
+        float speed = sqrt(starMassEff * radii[i] * radii[i] / pow(radii[i]*radii[i] + soft*soft, 1.5f)); // circular orbit speed
         bodies.vel[i] = {
             speed * cos(angles[i]),  // tangent to the orbit, no radial component
             0.0f,
