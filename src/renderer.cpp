@@ -185,6 +185,7 @@ void Renderer::draw(const float* xyz, const float* vel, const glm::vec3 center, 
     GLint projLoc = glGetUniformLocation(shaderProgram, "projection");
 
     glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
+    glUniform1i(glGetUniformLocation(shaderProgram, "colorBySpeed"), m_colorBySpeed);
     glUniformMatrix4fv(projLoc, 1, GL_FALSE, glm::value_ptr(projection));
     
 

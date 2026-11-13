@@ -26,6 +26,7 @@ public:
 
     void draw(const float* xyz, const float* vel, glm::vec3 center, std::size_t count,
               DrawMode mode = DrawMode::Points);
+    void setColorBySpeed(bool on) { m_colorBySpeed = on; }
     void setCamera(float cx, float cy, float cz, float scale);
 
 private:
@@ -33,6 +34,7 @@ private:
     CameraController m_cam;
 
 
+    bool m_colorBySpeed = true;
     int m_width = 0;
     int m_height = 0;
 

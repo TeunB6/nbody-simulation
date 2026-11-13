@@ -11,6 +11,7 @@ int main(int argc, char** argv) {
     int n = 1000;
     float soft = 0.5;
     bool triangleTest = false;
+    bool whiteDots = false;
     std::uint32_t seed = 33;
     InitMethod init = InitMethod::Uniform;
     InitParams params = InitParams{};
@@ -20,6 +21,8 @@ int main(int argc, char** argv) {
         std::string arg = argv[i];
         if (arg == "-N" && i + 1 < argc) {
             n = std::stoi(argv[++i]); // read next token
+        } else if (arg == "-white") {
+            whiteDots = true;
         } else if (arg == "-test") {
             triangleTest = true;
         } else if (arg == "-soft" && i + 1 < argc) {
@@ -45,6 +48,7 @@ int main(int argc, char** argv) {
     }
 
     Renderer r(1000, 1000, "nbody");
+    r.setColorBySpeed(!whiteDots);
 
     if (triangleTest) {
         // Square pyramid through the same draw path as the simulation: xyzm positions, xyz velocities.
@@ -68,6 +72,7 @@ int main(int argc, char** argv) {
         return 0;
     }
 
+    params.setDefault("soft", soft); // let init methods account for the simulator's softening
     Bodies b = makeBodies(init, n, seed, params);
 
     Simulator sim(b, soft);

@@ -4,6 +4,7 @@ layout (location = 1) in vec3 aVel;
 
 uniform mat4 view;
 uniform mat4 projection;
+uniform bool colorBySpeed;
 
 out vec3 vertColor;
 
@@ -16,6 +17,11 @@ void main()
 {
     gl_Position = projection * view * vec4(aPos, 1.0);
     gl_PointSize = 5.0;
+
+    if (!colorBySpeed) {
+        vertColor = vec3(1.0);
+        return;
+    }
 
     float s = length(aVel);
     vec3 dir = s > 1e-6 ? aVel / s : vec3(0.0);
