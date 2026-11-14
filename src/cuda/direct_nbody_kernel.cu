@@ -1,11 +1,5 @@
-#include "nbody_kernel.cuh"
+#include "direct_nbody_kernel.cuh"
 #include <cuda_runtime.h>
-#include <cuda_gl_interop.h> 
-
-#define CUDA_CHECK(x) do { cudaError_t e = (x); if (e != cudaSuccess) \
-    throw std::runtime_error(std::string(cudaGetErrorString(e)) + " at " + __FILE__ + ":" + std::to_string(__LINE__)); \
- } while (0)
-
 
 
 __global__ void nbody_compute_kernel(
@@ -57,7 +51,7 @@ __global__ void nbody_compute_kernel(
     positionsWrite[idx] = myPos;  
 }
 
-cudaError_t run_nbody_step(
+cudaError_t direct_nbody_step(
     float4* positionsRead, float3* velocitiesRead, 
     float4* positionsWrite, float3* velocitiesWrite,
     float dt, int num_bodies, float softening)
@@ -115,19 +109,20 @@ __global__ void energy_kernel(float4* positions, float3* velocities, int n, floa
     }
 }
 
-cudaError_t compute_energy(
+cudaError_t direct_compute_energy(
     float4* positions, float3* velocities, int num_bodies,
      float softening, double* d_out /*2 doubles*/) 
 {
     // assume arrays alr allocated somehow
+    if (num_bodies <= 0) return cudaSuccess; // a 0-block grid is an invalid launch configuration
     int threadsPerBlock = 256;
     int blocks = (num_bodies + threadsPerBlock - 1) / threadsPerBlock;
 
-    cudaMemset(d_out, 0, 2*sizeof(double));
+    cudaError_t err = cudaMemset(d_out, 0, 2*sizeof(double));
+    if (err != cudaSuccess) return err;
 
     dim3 Dg(blocks,1,1);
     dim3 Db(threadsPerBlock,1,1);  
     energy_kernel<<<Dg,Db>>>(positions, velocities, num_bodies, softening, d_out);
-    cudaError_t err = cudaGetLastError();
-    return err;
+    return cudaGetLastError();
 }

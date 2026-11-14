@@ -1,4 +1,5 @@
 #include <iostream>
+#include <string>
 #include <iterator>
 #include <vector>
 #include <glm/glm.hpp>
@@ -6,15 +7,22 @@
 #include <nbody/simulator.hpp>
 #include <nbody/initial_conditions.hpp>
 #include <nbody/bodies.hpp>
+#include <nbody/direct_solver.hpp>
+#include <nbody/barnes_hut_solver.hpp>
+#include <memory>
 
 int main(int argc, char** argv) {
     int n = 1000;
     float soft = 0.5;
+    float theta = 0.5f;
+    std::string solverName = "direct";
     bool triangleTest = false;
     bool whiteDots = false;
+    bool computeVirial = false;
     std::uint32_t seed = 33;
     InitMethod init = InitMethod::Uniform;
     InitParams params = InitParams{};
+
 
 
     for (int i = 1; i < argc; ++i) {
@@ -25,8 +33,22 @@ int main(int argc, char** argv) {
             whiteDots = true;
         } else if (arg == "-test") {
             triangleTest = true;
+        } else if (arg == "-virial") {
+            computeVirial = true;
         } else if (arg == "-soft" && i + 1 < argc) {
             soft = std::stof(argv[++i]);  
+        } else if (arg == "-theta" && i + 1 < argc) {
+            theta = std::stof(argv[++i]);
+            if (!(theta > 0.f)) {
+                std::cerr << "-theta must be > 0\n";
+                return 1;
+            }
+        } else if (arg == "-solver" && i + 1 < argc) {
+            solverName = argv[++i];
+            if (solverName != "direct" && solverName != "bh") {
+                std::cerr << "unknown -solver '" << solverName << "' (use direct or bh)\n";
+                return 1;
+            }
         } else if (arg == "-seed" && i + 1 < argc) {
             seed = std::stoul(argv[++i]);        
         } else if (arg == "-init" && i + 1 < argc) {
@@ -42,7 +64,7 @@ int main(int argc, char** argv) {
             init = *m;
 
         } else {
-            std::cerr << "usage: " << argv[0] << " [-N bodies] [-soft eps] [-triangle]\n";
+            std::cerr << "usage: " << argv[0] << " [-N bodies] [-soft eps] [-solver direct|bh] [-theta t] [-seed s] [-init name[:params]] [-white] [-test]\n";
             return 1;
         }
     }
@@ -75,7 +97,12 @@ int main(int argc, char** argv) {
     params.setDefault("soft", soft); // let init methods account for the simulator's softening
     Bodies b = makeBodies(init, n, seed, params);
 
-    Simulator sim(b, soft);
+    std::unique_ptr<ForceSolver> solver;
+    if (solverName == "bh")
+        solver = std::make_unique<BarnesHutSolver>(soft, theta);
+    else
+        solver = std::make_unique<DirectSolver>(soft);
+    Simulator sim(b, std::move(solver));
     const float h = 1.f / 120.f;
     float acc = 0.f;
 
@@ -86,8 +113,7 @@ int main(int argc, char** argv) {
         r.beginFrame();
         r.draw(sim.positions(), sim.velocities(), sim.centerOfMass(), sim.count());
         r.endFrame();
-
-        std::cout <<  "Virial Ratio:\t" << sim.virialRatio() << '\n';
+        if (computeVirial) std::cout <<  "Virial Ratio:\t" << sim.virialRatio() << '\n';
     }
 
     return 0;

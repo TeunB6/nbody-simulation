@@ -1,40 +1,35 @@
 #include <nbody/octree.hpp>
+#include <nbody/morton.hpp> // boundingBox
 #include <utility>
-#include <limits>
 #include <tuple>
 #include <stdexcept>
 
+/*
+Possible improvments:
+- Add rope skip pointers to tree for faster gpu traversal.
+- 
+
+*/
+
 static constexpr int MAX_DEPTH = 32;
 
+// OctreeNode uses float3/float4 (shared with the GPU); Builder same type as sim and renderer glm::vec3/vec4. 
+static inline glm::vec3 toVec3(const float3& v) { return {v.x, v.y, v.z}; }
+static inline glm::vec4 toVec4(const float4& v) { return {v.x, v.y, v.z, v.w}; }
+static inline float3 toFloat3(const glm::vec3& v) { return make_float3(v.x, v.y, v.z); }
+static inline float4 toFloat4(const glm::vec4& v) { return make_float4(v.x, v.y, v.z, v.w); }
 
-std::pair<glm::vec3,float> boundingBox(const std::vector<glm::vec4>& positions) {
-    if (positions.empty()) throw std::invalid_argument("positions should not be empty");
-    glm::vec3 pMin = {std::numeric_limits<float>::max(), std::numeric_limits<float>::max(), std::numeric_limits<float>::max()};
-    glm::vec3 pMax = {std::numeric_limits<float>::lowest(), std::numeric_limits<float>::lowest(), std::numeric_limits<float>::lowest()};
-    for (auto const& p : positions) {
-        pMin.x = std::min(pMin.x, p.x);
-        pMin.y = std::min(pMin.y, p.y);
-        pMin.z = std::min(pMin.z, p.z);
-
-        pMax.x = std::max(pMax.x, p.x);
-        pMax.y = std::max(pMax.y, p.y);
-        pMax.z = std::max(pMax.z, p.z);
-    }
-
-    glm::vec3 center = {
-        (pMin.x + pMax.x) / 2,
-        (pMin.y + pMax.y) / 2,
-        (pMin.z + pMax.z) / 2,
-    };
-    float halfWidth = std::max(pMax.x - center.x, std::max(pMax.y - center.y, pMax.z - center.z));
-    return {center, halfWidth};
-}   
-
-bool insideBoundingBox(const glm::vec3& center, float halfwidth, const glm::vec4& point) {
-    return (point.x < center.x + halfwidth && point.x > center.x - halfwidth &&
-        point.y < center.y + halfwidth && point.y > center.y - halfwidth &&
-        point.z < center.z + halfwidth && point.z > center.z - halfwidth);
+static OctreeNode makeNode(const glm::vec3& center, float halfWidth) {
+    OctreeNode n{};
+    n.comMass = make_float4(0.f, 0.f, 0.f, 0.f);
+    n.center = toFloat3(center);
+    n.halfWidth = halfWidth;
+    for (int& c : n.child) c = -1;
+    n.body = -1;
+    n.isLeaf = 1; // flipped to 0 in getOrCreateChild when the first child is added
+    return n;
 }
+
 
 std::size_t Octree::getOrCreateChild(std::int32_t parentIdx, std::int32_t octant) {
     std::size_t existingChildIdx = m_nodes[parentIdx].child[octant];
@@ -43,7 +38,7 @@ std::size_t Octree::getOrCreateChild(std::int32_t parentIdx, std::int32_t octant
     }
 
     float childHalfWidth = m_nodes[parentIdx].halfWidth * 0.5;
-    glm::vec3 parentCenter = m_nodes[parentIdx].center;
+    glm::vec3 parentCenter = toVec3(m_nodes[parentIdx].center);
 
     /* Octant layout
        0 1 
@@ -71,16 +66,9 @@ std::size_t Octree::getOrCreateChild(std::int32_t parentIdx, std::int32_t octant
     glm::vec3 childCenter = parentCenter + offset;
 
     std::size_t childIdx = m_nodes.size();
-    m_nodes.push_back(
-        {
-            {0.0, 0.0, 0.0, 0.0}, // CoM, total mass
-            childCenter, // center 
-            childHalfWidth, // halfwidth 
-            {-1,-1,-1,-1,-1,-1,-1,-1}, // child indices
-            -1, // body
-        }
-    );
+    m_nodes.push_back(makeNode(childCenter, childHalfWidth));
     m_nodes[parentIdx].child[octant] = childIdx;
+    m_nodes[parentIdx].isLeaf = 0;
     return childIdx;
 };
 
@@ -102,57 +90,62 @@ std::int32_t getChildOctant(const glm::vec3& center, const glm::vec4& point) {
     return octant;
 }
 
-void Octree::insert(std::size_t bodyIdx, const std::vector<glm::vec4> &positions, std::size_t nodeIdx, int depth) {
-    if (depth > MAX_DEPTH) throw std::runtime_error("Octree::insert exceeded MAX_DEPTH (coincident bodies?)");
+void Octree::insert(int32_t bodyIdx, const std::vector<glm::vec4> &positions, int32_t nodeIdx, int depth) {
     glm::vec4 pos = positions[bodyIdx];
     // CASE 1: Node is empty -> make it a leaf
-    if (m_nodes[nodeIdx].comMass.w == 0.0) {
-        m_nodes[nodeIdx].comMass = glm::vec4(glm::vec3(pos) * pos.w, pos.w); // mass-weighted sum, normalized in build()
+    if (m_nodes[nodeIdx].comMass.w == 0.0 && m_nodes[nodeIdx].body == -1) {
+        m_nodes[nodeIdx].comMass = toFloat4(glm::vec4(glm::vec3(pos) * pos.w, pos.w)); // mass-weighted sum, normalized in build()
         m_nodes[nodeIdx].body = bodyIdx;
         return;
     }
 
-    // CASE 2: Node is leaf -> make it internal and make child leaf
+    // CASE 2: depth limit reached. Stop subdividing and
+    // merge the body into this node, which becomes a multi-body "bucket" leaf: body = -1
+    if (depth >= MAX_DEPTH) {
+        m_nodes[nodeIdx].comMass = toFloat4(toVec4(m_nodes[nodeIdx].comMass) + glm::vec4(glm::vec3(pos) * pos.w, pos.w));
+        m_nodes[nodeIdx].body = -1;
+        return;
+    }
+
+    // CASE 3: Node is leaf -> make it internal and make child leaf
     if (m_nodes[nodeIdx].body != -1 && m_nodes[nodeIdx].comMass.w > 0.0) {
-        std::size_t oldBodyIdx = m_nodes[nodeIdx].body;
+        int32_t oldBodyIdx = m_nodes[nodeIdx].body;
         m_nodes[nodeIdx].body = -1; 
 
-        std::size_t oldOctant = getChildOctant(m_nodes[nodeIdx].center, positions[oldBodyIdx]);
-        std::size_t childIdx = getOrCreateChild(nodeIdx, oldOctant);
+        int32_t oldOctant = getChildOctant(toVec3(m_nodes[nodeIdx].center), positions[oldBodyIdx]);
+        int32_t childIdx = getOrCreateChild(nodeIdx, oldOctant);
         insert(oldBodyIdx, positions, childIdx, depth + 1);
     }
 
-    // CASE 3: Node is node is internal -> update and aggregate
-    m_nodes[nodeIdx].comMass += glm::vec4(glm::vec3(pos) * pos.w, pos.w);
+    // CASE 4: Node is node is internal -> update and aggregate
+    m_nodes[nodeIdx].comMass = toFloat4(toVec4(m_nodes[nodeIdx].comMass) + glm::vec4(glm::vec3(pos) * pos.w, pos.w));
 
-    int newOctant = getChildOctant(m_nodes[nodeIdx].center, pos);
-    std::size_t childIdx = getOrCreateChild(nodeIdx, newOctant);
+    int newOctant = getChildOctant(toVec3(m_nodes[nodeIdx].center), pos);
+    int32_t childIdx = getOrCreateChild(nodeIdx, newOctant);
     insert(bodyIdx, positions, childIdx, depth + 1);   
+}
+
+void Octree::rebuild(const std::vector<glm::vec4>& positions) {
+    glm::vec3 center; float halfwidth;
+    std::tie(center, halfwidth) = boundingBox(positions);
+    m_nodes.clear(); // keeps capacity
+    m_nodes.reserve(2 * positions.size() + 1); // ~2N nodes typical; no-op once capacity is enough
+    m_nodes.push_back(makeNode(center, halfwidth));
+
+    for (std::int32_t i = 0; i < static_cast<std::int32_t>(positions.size()); ++i) {
+        insert(i, positions, 0);
+    }
+
+    // comMass holds (sum m*pos, sum m) during insertion; divide once per node here
+    for (OctreeNode &node : m_nodes) {
+        if (node.comMass.w > 0.0f)
+            node.comMass = toFloat4(glm::vec4(glm::vec3(toVec4(node.comMass)) / node.comMass.w, node.comMass.w));
+    }
 }
 
 Octree Octree::build(const std::vector<glm::vec4>& positions) {
     Octree tree;
-    glm::vec3 center; float halfwidth;
-    std::tie(center, halfwidth) = boundingBox(positions);
-    tree.m_nodes.push_back(
-        {
-            {0.0, 0.0, 0.0, 0.0}, // CoM, total mass
-            center, // center 
-            halfwidth, // halfwidth 
-            {-1,-1,-1,-1,-1,-1,-1,-1}, // child indices
-            -1, // body
-        }
-    );
-
-    for (std::int32_t i = 0; i < static_cast<std::int32_t>(positions.size()); ++i) {
-        tree.insert(i, positions, 0);
-    }
-
-    // comMass holds (sum m*pos, sum m) during insertion; divide once per node here
-    for (OctreeNode &node : tree.m_nodes) {
-        if (node.comMass.w > 0.0f)
-            node.comMass = glm::vec4(glm::vec3(node.comMass) / node.comMass.w, node.comMass.w);
-    }
+    tree.rebuild(positions);
     return tree;
 }
 
@@ -169,7 +162,7 @@ std::size_t Octree::nodeCount() const {
 }
 
 glm::vec3 Octree::centerOfMass() const {
-    return glm::vec3(m_nodes[0].comMass);
+    return glm::vec3(toVec4(m_nodes[0].comMass));
 }
 
 float Octree::totalMass() const {
@@ -182,16 +175,19 @@ const OctreeNode* Octree::data() const {
 
 bool Octree::validate() const {
     for (const OctreeNode &node : m_nodes) {
-        if (node.body != -1) continue;
+        if (node.isLeaf) continue; // single-body leaf or MAX_DEPTH bucket
         glm::vec4 expectedCoM = {0.0,0.0,0.0,0.0};
+        float expectedMass = 0.0f;
         for (std::int32_t childIdx : node.child) {
             if (childIdx == -1) continue;
             if (childIdx >= m_nodes.size()) return false;
-            expectedCoM += m_nodes[childIdx].comMass * m_nodes[childIdx].comMass.w;
+            expectedCoM += toVec4(m_nodes[childIdx].comMass) * m_nodes[childIdx].comMass.w;
+            expectedMass += m_nodes[childIdx].comMass.w;
         } 
         expectedCoM /= expectedCoM.w; 
+        expectedCoM.w = expectedMass;
 
-        if(node.comMass != expectedCoM) return false;
+        if(glm::length(toVec4(node.comMass) - expectedCoM) > 1e-10) return false;
     }
     return true;
 }

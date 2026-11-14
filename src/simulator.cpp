@@ -1,14 +1,7 @@
 #include <nbody/simulator.hpp>
-#include <random>
+#include <nbody/morton.hpp>
 #include <cuda_runtime.h>          // cudaMalloc, cudaMemcpy, cudaFree, cudaGetLastError
-#include "cuda/nbody_kernel.cuh"   // declaration of run_nbody_step
-#include <system_error>
 #include <ranges>
-
-#define CUDA_CHECK(x) do { cudaError_t e = (x); if (e != cudaSuccess) \
-    throw std::runtime_error(std::string(cudaGetErrorString(e)) + " at " + __FILE__ + ":" + std::to_string(__LINE__)); \
- } while (0)
-
 
 glm::vec3 massWeightedDir(const std::vector<glm::vec4> &x) {
     glm::vec3 c = {0,0,0}; float m = 0;
@@ -37,66 +30,116 @@ glm::vec3 massWeightedDir(const std::vector<glm::vec3> &dir, const std::vector<g
     return c;
 }
 
-Simulator::Simulator(const Bodies& initial, float softening):
-    m_softening(softening) 
+Simulator::Simulator(const Bodies& initial, std::unique_ptr<ForceSolver> solver)
+    : m_solver(std::move(solver)), m_pos(initial.pos), m_vel(initial.vel), m_n(m_pos.size())
 {
+    if (!m_solver)
+        throw std::invalid_argument("Simulator requires a non-null force solver.");
     m_pos = initial.pos;
     m_vel = initial.vel;
+    m_pos_dirty = false;
+    m_vel_dirty = false;
+
 
     if (m_pos.size() != m_vel.size()) 
         throw std::invalid_argument("Initial configuration contains an inconsistant amount of bodies.");
     m_n = m_pos.size();
-    // TODO: finda way to use RAII on these buffers as they are not freed if the constructor fails mid construction.
-    // read arrays 
-    CUDA_CHECK(cudaMalloc(&d_posRead, sizeof(glm::vec4) * m_n));
-    CUDA_CHECK(cudaMalloc(&d_velRead, sizeof(glm::vec3) * m_n));
+    d_pos.resize(m_n);
+    d_vel.resize(m_n);
+    d_pos_write.resize(m_n);
+    d_vel_write.resize(m_n);
+    d_energy.resize(2); // 2 doubles for kinetic and potential energy
 
-    CUDA_CHECK(cudaMalloc(&d_energy, sizeof(double) * 2));
+    refreshViews();
 
-    // write arrays
-    CUDA_CHECK(cudaMalloc(&d_posWrite, sizeof(glm::vec4) * m_n));
-    CUDA_CHECK(cudaMalloc(&d_velWrite, sizeof(glm::vec3) * m_n));
+    // Copy initial data to device
+    d_pos.copyFromHost(reinterpret_cast<float4*>(m_pos.data()), m_n);
+    d_vel.copyFromHost(reinterpret_cast<float3*>(m_vel.data()), m_n);
 
-    CUDA_CHECK(cudaMemcpy(d_posRead, m_pos.data(), m_n * sizeof(glm::vec4), cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(d_velRead, m_vel.data(), m_n * sizeof(glm::vec3), cudaMemcpyHostToDevice));
+    if (m_solver->wantsSortedBodies())
+        reorderBodies(); // start from a spatially sorted layout
+}
+
+void Simulator::refreshViews() {
+    d_read  = { d_pos.get(),       d_vel.get(),       static_cast<int>(m_n) };
+    d_write = { d_pos_write.get(), d_vel_write.get(), static_cast<int>(m_n) };
+}
+
+void Simulator::reorderBodies() {
+    if (m_n < 2) return;
+    // The host copies must be current before we permute them and upload them back.
+    syncPositions();
+    syncVelocities();
+    auto [center, halfWidth] = boundingBox(m_pos);
+    std::vector<int32_t> order = mortonOrder(m_pos, center, halfWidth);
+    std::vector<glm::vec4> newPos(m_n);
+    std::vector<glm::vec3> newVel(m_n);
+    for (std::size_t i = 0; i < m_n; ++i) {
+        newPos[i] = m_pos[order[i]];
+        newVel[i] = m_vel[order[i]];
+    }
+    m_pos = std::move(newPos);
+    m_vel = std::move(newVel);
+
+    d_pos.copyFromHost(reinterpret_cast<float4*>(m_pos.data()), m_n);
+    d_vel.copyFromHost(reinterpret_cast<float3*>(m_vel.data()), m_n);
+    m_rebuild_counter = 0;
+}
+
+void Simulator::syncPositions() {
+    if (!m_pos_dirty) return;
+    d_pos.copyToHost(reinterpret_cast<float4*>(m_pos.data()), m_n);
+    m_pos_dirty = false;
+}
+
+void Simulator::syncVelocities() {
+    if (!m_vel_dirty) return;
+    d_vel.copyToHost(reinterpret_cast<float3*>(m_vel.data()), m_n);
+    m_vel_dirty = false;
 }
 
 const float* Simulator::positions() {
-    CUDA_CHECK(cudaMemcpy(m_pos.data(), d_posRead, m_n * sizeof(glm::vec4), cudaMemcpyDeviceToHost));
+    syncPositions();
     return reinterpret_cast<const float*>(m_pos.data());
 }
 
 const float Simulator::virialRatio() {
-    CUDA_CHECK(compute_energy(d_posRead, d_velRead, m_n, m_softening, d_energy));
+    syncPositions();
+    m_solver->compute_energy(d_read, d_energy, m_pos, 0.0f);
     double h[2];
-    CUDA_CHECK(cudaMemcpy(h, d_energy, 2*sizeof(double), cudaMemcpyDeviceToHost));
+    d_energy.copyToHost(h, 2);
+    if (fabs(h[1]) < 1e-10) {
+        throw std::runtime_error("Potential energy is too small, virial ratio is undefined.");
+    }
     return 2 * h[0] / fabs(h[1]);
 }
 
 const float* Simulator::velocities() {
-    CUDA_CHECK(cudaMemcpy(m_vel.data(), d_velRead, m_n * sizeof(glm::vec3), cudaMemcpyDeviceToHost));
+    syncVelocities();
     return reinterpret_cast<const float*>(m_vel.data());
 }
 
 const glm::vec3 Simulator::centerOfMass() {
+    syncPositions();
     return massWeightedDir(m_pos);
 }
  
 const std::size_t Simulator::count() {
     return m_pos.size();
 }
+
 void Simulator::step(float dt) {
-    CUDA_CHECK(run_nbody_step(d_posRead, d_velRead, d_posWrite, d_velWrite, dt, m_n, m_softening));
-    // swap for next iteration
-    std::swap(d_posRead, d_posWrite);
-    std::swap(d_velRead, d_velWrite);
-}
+    syncPositions();
+    if (m_solver->wantsSortedBodies() && m_rebuild_counter >= kReorderInterval) {
+        reorderBodies(); // resets the counter
+    }
+    m_solver->step(d_read, d_write, m_pos, dt);
 
-
-Simulator::~Simulator() {
-    cudaFree(d_posRead);
-    cudaFree(d_posWrite);
-    cudaFree(d_velRead);
-    cudaFree(d_velWrite);
-    cudaFree(d_energy);
+    // Swap the owning buffers
+    d_pos.swap(d_pos_write);
+    d_vel.swap(d_vel_write);
+    refreshViews();
+    m_pos_dirty = true;
+    m_vel_dirty = true;
+    ++m_rebuild_counter;
 }
